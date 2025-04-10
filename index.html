@@ -2,64 +2,125 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <title>加速度表示アプリ</title>
+  <title>加速度表示アプリ（平滑化＆ピストン検知）</title>
   <style>
     body {
       font-family: sans-serif;
       text-align: center;
-      margin-top: 50px;
+      margin-top: 20px;
     }
-    #acceleration p {
+    #data p {
       font-size: 1.2em;
     }
   </style>
 </head>
 <body>
-  <h1>加速度表示アプリ</h1>
-  <p>「計測開始」ボタンを押してセンサーの計測を開始してください。</p>
+  <h1>加速度表示アプリ（平滑化＆ピストン検知）</h1>
+  <p>「計測開始」ボタンを押して、センサー計測を開始してください。</p>
   <button id="startButton">計測開始</button>
-
-  <div id="acceleration" style="margin-top:20px;">
-    <p>x: <span id="accelerationX">--</span></p>
-    <p>y: <span id="accelerationY">--</span></p>
-    <p>z: <span id="accelerationZ">--</span></p>
+  <div id="data" style="margin-top:20px;">
+    <p>平滑化された加速度</p>
+    <p>x: <span id="accelerationX">--</span> m/s²</p>
+    <p>y: <span id="accelerationY">--</span> m/s²</p>
+    <p>z: <span id="accelerationZ">--</span> m/s²</p>
+    <p>推定変位 (z軸): <span id="displacementZ">0 m</span></p>
+    <p id="detection" style="font-size: 1.2em; color: red;"></p>
   </div>
-
   <script>
-    // センサーからのデータ受信ハンドラー
+    const MA_WINDOW = 10;  // 移動平均のサンプル数
+    let accXBuffer = [];
+    let accYBuffer = [];
+    let accZBuffer = [];
+    
+    // 積分用の変数
+    let lastTimestamp = null;  // 前回の計測時間（ms）
+    let velocityZ = 0;         // 推定速度（z軸、m/s）
+    let displacementZ = 0;     // 推定変位（z軸、m）
+    
+    // バッファ内の平均値を求める関数
+    function movingAverage(buffer) {
+      let sum = buffer.reduce((a, b) => a + b, 0);
+      return sum / buffer.length;
+    }
+    
     function handleMotion(event) {
-      // 加速度データ（地球重力成分は除く場合）
-      const acc = event.acceleration;
+      const acc = event.acceleration;  // 重力の影響を除いた加速度
       if (acc) {
-        document.getElementById('accelerationX').textContent = (acc.x !== null ? acc.x.toFixed(2) : "N/A");
-        document.getElementById('accelerationY').textContent = (acc.y !== null ? acc.y.toFixed(2) : "N/A");
-        document.getElementById('accelerationZ').textContent = (acc.z !== null ? acc.z.toFixed(2) : "N/A");
+        // 各軸の値をバッファに追加し、サンプル数を MA_WINDOW に保つ
+        if (acc.x !== null) {
+          accXBuffer.push(acc.x);
+          if (accXBuffer.length > MA_WINDOW) { accXBuffer.shift(); }
+        }
+        if (acc.y !== null) {
+          accYBuffer.push(acc.y);
+          if (accYBuffer.length > MA_WINDOW) { accYBuffer.shift(); }
+        }
+        if (acc.z !== null) {
+          accZBuffer.push(acc.z);
+          if (accZBuffer.length > MA_WINDOW) { accZBuffer.shift(); }
+        }
+        
+        // 移動平均の値を計算
+        let avgX = (acc.x !== null && accXBuffer.length > 0) ? movingAverage(accXBuffer) : 0;
+        let avgY = (acc.y !== null && accYBuffer.length > 0) ? movingAverage(accYBuffer) : 0;
+        let avgZ = (acc.z !== null && accZBuffer.length > 0) ? movingAverage(accZBuffer) : 0;
+        
+        // 平滑化された加速度を画面に表示
+        document.getElementById('accelerationX').textContent = avgX.toFixed(2);
+        document.getElementById('accelerationY').textContent = avgY.toFixed(2);
+        document.getElementById('accelerationZ').textContent = avgZ.toFixed(2);
+        
+        // 時間差 dt を求める（秒単位）
+        let currentTime = Date.now();
+        if (lastTimestamp === null) {
+          lastTimestamp = currentTime;
+          return; // 初回は積分しない
+        }
+        let dt = (currentTime - lastTimestamp) / 1000;
+        lastTimestamp = currentTime;
+        
+        // z 軸方向の加速度から速度・変位を積分（簡易的な方法）
+        velocityZ += avgZ * dt;         // 速度更新（速度 = 速度 + 加速度×dt）
+        displacementZ += velocityZ * dt;  // 変位更新（変位 = 変位 + 速度×dt）
+        
+        // 小さな速度はゼロにしてドリフトを軽減する
+        if (Math.abs(velocityZ) < 0.1) { 
+          velocityZ = 0; 
+        }
+        
+        // 変位を画面に表示（小数点以下3桁まで）
+        document.getElementById('displacementZ').textContent = displacementZ.toFixed(3) + " m";
+        
+        // 変位が 2cm （0.02 m）を超えたらピストン運動を検知したと表示
+        if (Math.abs(displacementZ) > 0.02) {
+          document.getElementById('detection').textContent = "ピストン運動を検知！";
+        } else {
+          document.getElementById('detection').textContent = "";
+        }
       } else {
         document.getElementById('accelerationX').textContent = "N/A";
         document.getElementById('accelerationY').textContent = "N/A";
         document.getElementById('accelerationZ').textContent = "N/A";
       }
     }
-
-    // センサー計測の開始処理
+    
     function startMotion() {
-      // iOS 13 以降の場合、ユーザーによる許可が必要
+      // iOS 13以降など、センサー利用時にユーザー許可が必要な場合の処理
       if (typeof DeviceMotionEvent.requestPermission === 'function') {
         DeviceMotionEvent.requestPermission()
           .then(permissionState => {
             if (permissionState === 'granted') {
               window.addEventListener('devicemotion', handleMotion);
             } else {
-              alert('加速度センサーの利用が許可されませんでした。');
+              alert('センサーの利用が許可されませんでした。');
             }
           })
           .catch(console.error);
       } else {
-        // 許可が不要なブラウザの場合
         window.addEventListener('devicemotion', handleMotion);
       }
     }
-
+    
     document.getElementById('startButton').addEventListener('click', startMotion);
   </script>
 </body>
