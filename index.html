@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>加速度表示アプリ</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      margin-top: 50px;
+    }
+    #acceleration p {
+      font-size: 1.2em;
+    }
+  </style>
+</head>
+<body>
+  <h1>加速度表示アプリ</h1>
+  <p>「計測開始」ボタンを押してセンサーの計測を開始してください。</p>
+  <button id="startButton">計測開始</button>
+
+  <div id="acceleration" style="margin-top:20px;">
+    <p>x: <span id="accelerationX">--</span></p>
+    <p>y: <span id="accelerationY">--</span></p>
+    <p>z: <span id="accelerationZ">--</span></p>
+  </div>
+
+  <script>
+    // センサーからのデータ受信ハンドラー
+    function handleMotion(event) {
+      // 加速度データ（地球重力成分は除く場合）
+      const acc = event.acceleration;
+      if (acc) {
+        document.getElementById('accelerationX').textContent = (acc.x !== null ? acc.x.toFixed(2) : "N/A");
+        document.getElementById('accelerationY').textContent = (acc.y !== null ? acc.y.toFixed(2) : "N/A");
+        document.getElementById('accelerationZ').textContent = (acc.z !== null ? acc.z.toFixed(2) : "N/A");
+      } else {
+        document.getElementById('accelerationX').textContent = "N/A";
+        document.getElementById('accelerationY').textContent = "N/A";
+        document.getElementById('accelerationZ').textContent = "N/A";
+      }
+    }
+
+    // センサー計測の開始処理
+    function startMotion() {
+      // iOS 13 以降の場合、ユーザーによる許可が必要
+      if (typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission()
+          .then(permissionState => {
+            if (permissionState === 'granted') {
+              window.addEventListener('devicemotion', handleMotion);
+            } else {
+              alert('加速度センサーの利用が許可されませんでした。');
+            }
+          })
+          .catch(console.error);
+      } else {
+        // 許可が不要なブラウザの場合
+        window.addEventListener('devicemotion', handleMotion);
+      }
+    }
+
+    document.getElementById('startButton').addEventListener('click', startMotion);
+  </script>
+</body>
+</html>
